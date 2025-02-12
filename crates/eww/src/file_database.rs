@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use codespan_reporting::files::Files;
 use eww_shared_util::Span;
+use itertools::Itertools;
 use yuck::{
     config::file_provider::{FilesError, YuckFileProvider},
     error::DiagError,
@@ -39,17 +40,27 @@ impl FileDatabase {
 }
 
 impl YuckFileProvider for FileDatabase {
-    fn load_yuck_file(&mut self, path: std::path::PathBuf) -> Result<(Span, Vec<Ast>), FilesError> {
-        let file_content = std::fs::read_to_string(&path)?;
-        let line_starts = codespan_reporting::files::line_starts(&file_content).collect();
-        let code_file = CodeFile {
-            name: path.display().to_string(),
-            line_starts,
-            source_len_bytes: file_content.len(),
-            source: CodeSource::File(path),
-        };
-        let file_id = self.insert_code_file(code_file);
-        Ok(yuck::parser::parse_toplevel(file_id, file_content)?)
+    fn load_yuck_path(&mut self, path: std::path::PathBuf) -> Result<Vec<(Span, Vec<Ast>)>, FilesError> {
+        let metadata = std::fs::metadata(&path)?;
+
+        if metadata.is_dir() {
+            path
+                .read_dir()?
+                .map(|entry| {
+                    self.load_yuck_path(entry?.path()).map(Vec::into_iter)
+                }).flatten_ok().collect()
+        } else {
+            let file_content = std::fs::read_to_string(&path)?;
+            let line_starts = codespan_reporting::files::line_starts(&file_content).collect();
+            let code_file = CodeFile {
+                name: path.display().to_string(),
+                line_starts,
+                source_len_bytes: file_content.len(),
+                source: CodeSource::File(path),
+            };
+            let file_id = self.insert_code_file(code_file);
+            Ok(vec![yuck::parser::parse_toplevel(file_id, file_content)?])
+        }
     }
 
     fn load_yuck_str(&mut self, name: String, content: String) -> Result<(Span, Vec<Ast>), DiagError> {

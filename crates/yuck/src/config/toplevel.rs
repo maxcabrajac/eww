@@ -122,16 +122,19 @@ impl Config {
                 self.window_definitions.insert(x.name.clone(), x);
             }
             TopLevel::Include(include) => {
-                let (_, toplevels) = files.load_yuck_file(PathBuf::from(&include.path)).map_err(|err| match err {
+                let included_files = files.load_yuck_path(PathBuf::from(&include.path)).map_err(|err| match err {
                     FilesError::IoError(_) => DiagError(gen_diagnostic! {
-                        msg = format!("Included file `{}` not found", include.path),
+                        msg = format!("Included file/directory `{}` not found", include.path),
                         label = include.path_span => "Included here",
                     }),
                     FilesError::DiagError(x) => x,
                 })?;
-                for element in toplevels {
-                    self.append_toplevel(files, TopLevel::from_ast(element)?)?;
-                }
+
+                for (_, toplevels) in included_files {
+                    for element in toplevels {
+                        self.append_toplevel(files, TopLevel::from_ast(element)?)?;
+                    }
+                };
             }
         }
         Ok(())
@@ -151,10 +154,10 @@ impl Config {
     }
 
     pub fn generate_from_main_file(files: &mut impl YuckFileProvider, path: impl AsRef<Path>) -> DiagResult<Self> {
-        let (_span, top_levels) = files.load_yuck_file(path.as_ref().to_path_buf()).map_err(|err| match err {
+        let (_span, top_levels) = files.load_yuck_path(path.as_ref().to_path_buf()).map_err(|err| match err {
             FilesError::IoError(err) => DiagError(gen_diagnostic!(err)),
             FilesError::DiagError(x) => x,
-        })?;
+        })?.into_iter().next().unwrap();
         Self::generate(files, top_levels)
     }
 }
